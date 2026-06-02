@@ -14,5 +14,15 @@
     "min_edge_per_set": 0.005,
     "max_daily_loss": 50.0,
     "require_manual_confirm_live": true
+  },
+  "sizing": {
+    "mode": "streak",
+    "base_usdc_per_trade": 10.0,
+    "ceiling_usdc_per_trade": 50.0,
+    "win_multiplier": 1.5,
+    "max_multiplier": 8.0,
+    "reset_on_loss": true,
+    "compound_fraction": 0.10,
+    "profit_target_multiple": 2.0
   }
 }

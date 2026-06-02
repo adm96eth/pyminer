@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from .risk import RiskLimits
+from .sizing import SizingConfig
 
 PAPER = "paper"
 LIVE = "live"
@@ -65,6 +66,7 @@ class Config:
     dry_run_live: bool = True             # in LIVE, log orders without sending
 
     limits: RiskLimits = field(default_factory=RiskLimits)
+    sizing: SizingConfig = field(default_factory=SizingConfig)
 
     def __post_init__(self):
         if self.mode not in (PAPER, LIVE):
@@ -85,15 +87,27 @@ class Config:
             with open(path) as f:
                 data = json.load(f)
         limits_data = data.pop("limits", {})
+        sizing_data = data.pop("sizing", {})
         cfg = cls(**data)
         if limits_data:
             cfg.limits = RiskLimits(**{**asdict(cfg.limits), **limits_data})
+        if sizing_data:
+            cfg.sizing = SizingConfig(**{**asdict(cfg.sizing), **sizing_data})
         # env override for the one switch people flip most
         env_mode = os.environ.get("POLYTRADER_MODE")
         if env_mode:
             cfg.mode = env_mode
             cfg.__post_init__()
         return cfg
+
+    def build_sizer(self, starting_equity: Optional[float] = None):
+        """Construct a Sizer. ``starting_equity`` defaults to the paper bankroll;
+        in LIVE mode set ``paper_starting_usdc`` to your real bankroll so the
+        compound-fraction and profit-target math use the right baseline."""
+        from .sizing import Sizer
+
+        eq = self.paper_starting_usdc if starting_equity is None else starting_equity
+        return Sizer(self.sizing, eq)
 
     def to_dict(self) -> dict:
         d = asdict(self)

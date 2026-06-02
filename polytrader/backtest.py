@@ -23,6 +23,13 @@ from .risk import RiskManager
 from .snapshot import read_frames
 
 
+def _affordable(size: float, set_cost: float, balance: float, buffer: float = 0.999) -> float:
+    """Cap ``size`` so the whole set fits in ``balance`` (with a tiny buffer)."""
+    if set_cost <= 0:
+        return size
+    return min(size, (balance * buffer) / set_cost)
+
+
 @dataclass
 class BacktestResult:
     frames: int = 0
@@ -55,7 +62,7 @@ class BacktestResult:
 class Backtester:
     def __init__(self, config: Config, risk: Optional[RiskManager] = None):
         self.config = config
-        self.risk = risk or RiskManager(config.limits)
+        self.risk = risk or RiskManager(config.limits, sizer=config.build_sizer())
         self.broker = PaperBroker(config.paper_starting_usdc)
 
     def run(self, snapshot_path: str) -> BacktestResult:
@@ -84,6 +91,12 @@ class Backtester:
                     break
                 approved, _reason, size = self.risk.approve(opp)
                 if not approved:
+                    res.skipped += 1
+                    continue
+                # never start a set we can't fully fund -> avoids partial-set
+                # unwind churn (a real loss source when sizing escalates).
+                size = _affordable(size, opp.set_cost, self.broker.usdc_balance())
+                if size < self.risk.limits.min_set_liquidity:
                     res.skipped += 1
                     continue
                 if self._fill_and_merge(opp, size, res):

@@ -92,7 +92,9 @@ def main(argv=None) -> int:
             log.warning("LIVE + ARMED: real orders with real funds will be placed.")
 
     broker = build_broker(config)
-    risk = RiskManager(config.limits)
+    sizer = config.build_sizer()
+    risk = RiskManager(config.limits, sizer=sizer)
+    log.info("sizing: %s", sizer.describe())
     journal = TradeJournal(args.journal, args.csv) if (args.journal or args.csv) else None
     notifier = notifier_from_env() if args.notify else None
     recorder = SnapshotRecorder(args.record) if args.record else None

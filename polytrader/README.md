@@ -44,6 +44,7 @@ top-of-book quote doesn't overstate the edge.
 | `snapshot.py` | serialize book snapshots to JSONL frames | no |
 | `backtest.py` | replay snapshots through the real strategy | no |
 | `report.py`   | roll a journal up into P&L / activity stats | no |
+| `sizing.py`   | dynamic position sizing (fixed/compound/streak) | no |
 
 ## Install
 
@@ -149,6 +150,42 @@ trading, then backtest threshold tweaks against exactly what you traded into.
 
 Because it replays your *own* recorded liquidity, backtest P&L is an optimistic
 upper bound (real execution competes for that depth) — same caveat as paper.
+
+## Position sizing — "press your winners" (`sizing` in config)
+
+Three modes, **all clamped to your hard `max_usdc_per_trade` ceiling** and to
+available cash (the bot never starts a set it can't fully fund), with the
+daily-loss kill switch always overriding:
+
+| mode | per-trade size |
+|------|----------------|
+| `fixed`    | always `base_usdc_per_trade` |
+| `compound` | `compound_fraction × current equity` (grows as the bankroll grows) |
+| `streak`   | `base × win_multiplier^(win streak)`, capped at `max_multiplier`; resets on a loss |
+
+`streak` is the **anti-Martingale / "risk more when we win"** behavior you
+asked for: it escalates only with house money and snaps back to base the moment
+a trade loses. Set `profit_target_multiple` to bank the run — e.g. `2.0` halts
+the engine the instant equity doubles:
+
+```json
+"sizing": {
+  "mode": "streak", "base_usdc_per_trade": 5.0, "ceiling_usdc_per_trade": 50.0,
+  "win_multiplier": 1.6, "max_multiplier": 8.0, "reset_on_loss": true,
+  "profit_target_multiple": 2.0
+}
+```
+
+```
+# backtest of the above on pure-arb frames:
+BACKTEST frames=13 trades=12 ... end=$209.77 (+109.77%) HALTED: profit target reached (2x)
+```
+
+> ⚠️ Escalation cuts both ways. The arb is only *near*-riskless; a partial fill,
+> slippage, or a bad resolution on a scaled-up position is a bigger loss. The
+> ceiling, the cash clamp, and `reset_on_loss` exist precisely so a hot streak
+> can't talk you into a position the bankroll can't survive. **Never** flip this
+> to a Martingale (more after losses) — that's the account-killer.
 
 ## Risk controls (`limits` in config)
 

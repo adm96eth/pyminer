@@ -91,6 +91,20 @@ class Engine:
                 self.journal.skipped(opp, reason)
             return False
 
+        # Never start a complete set we can't fully fund: a half-filled set is
+        # unhedged and unwinding it costs the spread. Cash-clamp before buying.
+        balance = self.broker.usdc_balance()
+        if opp.set_cost > 0:
+            affordable = (balance * 0.999) / opp.set_cost
+            if affordable < size:
+                size = round(affordable, 6)
+        if size < self.risk.limits.min_set_liquidity:
+            log.debug("skip %s: only $%.2f cash, affords %.2f sets",
+                      opp.market.condition_id, balance, size)
+            if self.journal:
+                self.journal.skipped(opp, f"insufficient cash for min set ({size:.2f})")
+            return False
+
         log.info("EXECUTE %s | approved_size=%.2f", opp.describe(), size)
 
         if self.config.is_live and self.config.dry_run_live:

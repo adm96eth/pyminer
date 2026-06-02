@@ -80,6 +80,30 @@ def test_backtest_no_trades_without_edge(tmp_path):
     assert res.realized_pnl == 0.0
 
 
+def test_backtest_streak_sizing_never_churns_below_start(tmp_path):
+    # Regression: aggressive win-streak escalation must not size past cash and
+    # bleed the account via partial-set unwinds. Equity should grow monotonically
+    # on pure-arb frames.
+    from polytrader.sizing import SizingConfig
+
+    path = tmp_path / "snap.jsonl"
+    _write_snapshot(path, [[_arb_market(cid="m%d" % i, depth=5000)] for i in range(30)])
+
+    cfg = Config(mode="paper", paper_starting_usdc=100.0)
+    cfg.limits = RiskLimits(min_edge_per_set=0.005, min_set_liquidity=1,
+                            max_usdc_per_trade=1000, max_usdc_per_market=1000,
+                            max_total_exposure=1e9, max_daily_loss=1e9)
+    cfg.sizing = SizingConfig(mode="streak", base_usdc_per_trade=5.0,
+                              ceiling_usdc_per_trade=1000.0, win_multiplier=1.6,
+                              max_multiplier=50.0)
+    res = Backtester(cfg).run(str(path))
+
+    assert res.realized_pnl > 0
+    assert res.ending_usdc >= cfg.paper_starting_usdc  # never went backwards
+    # broker cash and reported PnL agree (no hidden unwind losses)
+    assert abs(res.ending_usdc - (cfg.paper_starting_usdc + res.realized_pnl)) < 1e-6
+
+
 def test_backtest_summary_is_descriptive(tmp_path):
     path = tmp_path / "snap.jsonl"
     _write_snapshot(path, [[_arb_market()]])

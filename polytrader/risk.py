@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
 from .models import ArbOpportunity
+from .sizing import Sizer
 
 
 @dataclass
@@ -36,13 +37,22 @@ class RiskState:
 
 
 class RiskManager:
-    def __init__(self, limits: Optional[RiskLimits] = None):
+    def __init__(self, limits: Optional[RiskLimits] = None, sizer: Optional[Sizer] = None):
         self.limits = limits or RiskLimits()
+        self.sizer = sizer  # optional dynamic position sizing
         self.state = RiskState()
 
     # -- kill switch ---------------------------------------------------------
     def record_pnl(self, delta: float) -> None:
         self.state.realized_pnl += delta
+        if self.sizer is not None:
+            self.sizer.on_pnl(delta)
+            if self.sizer.target_reached():
+                self.halt(
+                    f"profit target reached: equity ${self.sizer.equity:.2f} "
+                    f">= {self.sizer.cfg.profit_target_multiple:g}x start "
+                    f"${self.sizer.starting_equity:.2f}"
+                )
         if -self.state.realized_pnl >= self.limits.max_daily_loss:
             self.halt(
                 f"daily loss limit hit: realized PnL ${self.state.realized_pnl:.2f} "
@@ -98,9 +108,13 @@ class RiskManager:
         per_set = opp.set_cost
         mid = opp.market.condition_id
 
-        # cap: per trade
+        # cap: per trade. The dynamic sizer (if any) may scale this up on a win
+        # streak or with bankroll, but never past the hard ceiling below.
         size = opp.size
-        max_by_trade = self.limits.max_usdc_per_trade / per_set
+        per_trade_usdc = self.limits.max_usdc_per_trade
+        if self.sizer is not None:
+            per_trade_usdc = min(per_trade_usdc, self.sizer.per_trade_cap())
+        max_by_trade = per_trade_usdc / per_set
         # cap: per market (account for what we already hold)
         used_mkt = self.state.exposure_by_market.get(mid, 0.0)
         room_mkt = max(0.0, self.limits.max_usdc_per_market - used_mkt)
