@@ -43,6 +43,7 @@ top-of-book quote doesn't overstate the edge.
 | `notify.py`   | console / webhook / Telegram alerts | webhook+TG only |
 | `snapshot.py` | serialize book snapshots to JSONL frames | no |
 | `backtest.py` | replay snapshots through the real strategy | no |
+| `report.py`   | roll a journal up into P&L / activity stats | no |
 
 ## Install
 
@@ -101,6 +102,21 @@ flushed per write so a crash still leaves a complete record. `trades.csv` is a
 flat sheet of executed/merged trades for spreadsheets. Both files are
 gitignored by default.
 
+### P&L / stats rollup (`--report`)
+
+Summarize a journal at any time — during or after a run — with no network:
+
+```bash
+python -m polytrader --report trades.jsonl
+# === polytrader report (2026-06-01 -> 2026-06-02) ===
+# detected=120 executed=42 merged=42 skipped=78 unwound=1 halts=0
+# realized PnL: $+18.40  |  volume: $1430.00  |  win rate: 100% (42W/0L)  | ...
+# -- by day --   ...   -- top markets by realized PnL --   ...
+```
+
+You get totals, win rate, best/worst trade, and per-day + per-market
+breakdowns. It tolerates a torn last line (e.g. from a crash mid-write).
+
 ## Notifications (`--notify`)
 
 ```bash
@@ -120,11 +136,16 @@ Archive every tick's order books while running, then replay them through the
 *exact same* strategy/risk/broker code to tune thresholds:
 
 ```bash
-python -m polytrader --paper --record books.jsonl     # capture live snapshots
+python -m polytrader --paper --record books.jsonl     # capture snapshots (paper)
+python -m polytrader --live  --record books.jsonl      # also works while live
 python -m polytrader --backtest books.jsonl \
        --config polytrader/config.example.json         # replay offline
 # -> BACKTEST frames=240 opps=18 trades=12 ... realizedPnL=$4.30 (+0.43%)
 ```
+
+`--record` runs in the engine loop independent of the broker, so it captures
+the same book snapshots whether you're paper or live — let it run during real
+trading, then backtest threshold tweaks against exactly what you traded into.
 
 Because it replays your *own* recorded liquidity, backtest P&L is an optimistic
 upper bound (real execution competes for that depth) — same caveat as paper.

@@ -51,6 +51,7 @@ def main(argv=None) -> int:
     p.add_argument("--notify", action="store_true",
                    help="enable notifications (console + any configured webhook/Telegram via env)")
     p.add_argument("--backtest", help="replay a recorded snapshot file and exit (no network)")
+    p.add_argument("--report", help="summarize a JSONL trade journal and exit (no network)")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
 
@@ -59,6 +60,13 @@ def main(argv=None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
     log = logging.getLogger("polytrader")
+
+    # Reporting is pure analysis of a journal file -- no config/broker needed.
+    if args.report:
+        from .report import build_report, format_report
+
+        print(format_report(build_report(args.report)))
+        return 0
 
     config = Config.load(args.config)
     if args.live:
