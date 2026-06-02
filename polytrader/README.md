@@ -39,6 +39,10 @@ top-of-book quote doesn't overstate the edge.
 | `brokers/live.py`  | real orders via `py-clob-client` | yes |
 | `client.py`   | read-only market + book data | yes |
 | `engine.py`   | the loop: fetch → detect → risk → execute | yes |
+| `journal.py`  | JSONL event log + CSV of trades | no |
+| `notify.py`   | console / webhook / Telegram alerts | webhook+TG only |
+| `snapshot.py` | serialize book snapshots to JSONL frames | no |
+| `backtest.py` | replay snapshots through the real strategy | no |
 
 ## Install
 
@@ -84,6 +88,46 @@ Live mode places **real orders with real funds**. It is gated three ways:
 Start armed runs with `max_usdc_per_trade` set to a few dollars and verify the
 fills, fees, and on-chain settlement match what the bot reports **before**
 increasing size.
+
+## Logging trades (`--journal` / `--csv`)
+
+```bash
+python -m polytrader --paper --journal trades.jsonl --csv trades.csv
+```
+
+`trades.jsonl` gets one JSON object per event (`opportunity_detected`,
+`trade_executed`, `set_merged`, `opportunity_skipped`, `leg_unwound`, `halt`),
+flushed per write so a crash still leaves a complete record. `trades.csv` is a
+flat sheet of executed/merged trades for spreadsheets. Both files are
+gitignored by default.
+
+## Notifications (`--notify`)
+
+```bash
+python -m polytrader --paper --notify              # console only
+export POLYTRADER_WEBHOOK_URL=https://hooks.slack.com/...   # Slack/Discord/generic
+export TELEGRAM_BOT_TOKEN=123:abc TELEGRAM_CHAT_ID=456      # Telegram bot
+python -m polytrader --paper --notify              # fans out to all configured
+```
+
+You get a ping on every detected edge and on a kill-switch halt. Notifier
+secrets come from the environment only, and a failing notifier is logged but
+never stops trading.
+
+## Record + backtest (no network, no risk)
+
+Archive every tick's order books while running, then replay them through the
+*exact same* strategy/risk/broker code to tune thresholds:
+
+```bash
+python -m polytrader --paper --record books.jsonl     # capture live snapshots
+python -m polytrader --backtest books.jsonl \
+       --config polytrader/config.example.json         # replay offline
+# -> BACKTEST frames=240 opps=18 trades=12 ... realizedPnL=$4.30 (+0.43%)
+```
+
+Because it replays your *own* recorded liquidity, backtest P&L is an optimistic
+upper bound (real execution competes for that depth) — same caveat as paper.
 
 ## Risk controls (`limits` in config)
 

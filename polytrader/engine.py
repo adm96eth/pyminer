@@ -17,8 +17,11 @@ from .brokers.base import Broker
 from .brokers.paper import PaperBroker
 from .client import PolymarketData
 from .config import Config, Secrets
+from .journal import TradeJournal
 from .models import ArbOpportunity, Market
+from .notify import Notifier
 from .risk import RiskManager
+from .snapshot import SnapshotRecorder
 
 log = logging.getLogger("polytrader")
 
@@ -30,11 +33,17 @@ class Engine:
         broker: Broker,
         risk: RiskManager,
         data: Optional[PolymarketData] = None,
+        journal: Optional[TradeJournal] = None,
+        notifier: Optional[Notifier] = None,
+        recorder: Optional[SnapshotRecorder] = None,
     ):
         self.config = config
         self.broker = broker
         self.risk = risk
         self.data = data or PolymarketData(config.clob_host, config.gamma_host)
+        self.journal = journal
+        self.notifier = notifier
+        self.recorder = recorder
 
     # -- one full pass -------------------------------------------------------
     def tick(self) -> List[ArbOpportunity]:
@@ -49,6 +58,10 @@ class Engine:
         if isinstance(self.broker, PaperBroker):
             self.broker.set_books(books)
 
+        # optionally archive this snapshot for later backtesting
+        if self.recorder is not None:
+            self.recorder.record(markets)
+
         opps = strategy.scan(
             markets,
             min_edge_per_set=self.risk.limits.min_edge_per_set,
@@ -61,6 +74,10 @@ class Engine:
         for opp in opps:
             if self.risk.is_halted:
                 break
+            if self.journal:
+                self.journal.detected(opp)
+            if self.notifier:
+                self.notifier.safe_send("edge detected", opp.describe())
             if self._execute(opp):
                 executed.append(opp)
         return executed
@@ -70,6 +87,8 @@ class Engine:
         approved, reason, size = self.risk.approve(opp)
         if not approved:
             log.debug("skip %s: %s", opp.market.condition_id, reason)
+            if self.journal:
+                self.journal.skipped(opp, reason)
             return False
 
         log.info("EXECUTE %s | approved_size=%.2f", opp.describe(), size)
@@ -96,6 +115,8 @@ class Engine:
 
         spent = -sum(f.cost for f in fills)
         self.risk.register_fill(opp.market.condition_id, spent)
+        if self.journal:
+            self.journal.executed(opp, size, spent)
 
         # Realize the arb: a complete set merges back to $1 each.
         if isinstance(self.broker, PaperBroker) and not self.config.is_live:
@@ -107,6 +128,8 @@ class Engine:
                 self.risk.record_pnl(pnl)
                 log.info("MERGED %d legs: +$%.2f collateral, realized PnL $%.2f",
                          len(token_ids), credited, pnl)
+                if self.journal:
+                    self.journal.merged(opp, credited, pnl)
             except ValueError as e:
                 log.error("merge failed: %s", e)
         else:
@@ -136,5 +159,9 @@ class Engine:
                 break
             if self.risk.is_halted:
                 log.error("ENGINE HALTED: %s", self.risk.state.halt_reason)
+                if self.journal:
+                    self.journal.halted(self.risk.state.halt_reason)
+                if self.notifier:
+                    self.notifier.safe_send("ENGINE HALTED", self.risk.state.halt_reason)
                 break
             time.sleep(self.config.poll_interval_s)
