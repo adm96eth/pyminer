@@ -1,0 +1,6 @@
+# Core (read-only data + tests): always needed
+requests>=2.28
+
+# LIVE mode only -- placing real orders on the Polymarket CLOB.
+# Not needed for paper trading or the test suite.
+py-clob-client>=0.17

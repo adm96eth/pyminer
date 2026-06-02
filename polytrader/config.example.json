@@ -1,0 +1,18 @@
+{
+  "mode": "paper",
+  "poll_interval_s": 5.0,
+  "market_limit": 50,
+  "fee_bps": 0.0,
+  "gas_cost_per_set": 0.01,
+  "paper_starting_usdc": 1000.0,
+  "dry_run_live": true,
+  "limits": {
+    "max_usdc_per_trade": 50.0,
+    "max_usdc_per_market": 100.0,
+    "max_total_exposure": 500.0,
+    "min_set_liquidity": 5.0,
+    "min_edge_per_set": 0.005,
+    "max_daily_loss": 50.0,
+    "require_manual_confirm_live": true
+  }
+}
